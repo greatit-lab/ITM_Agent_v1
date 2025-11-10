@@ -82,9 +82,9 @@ namespace ITM_Agent.ucPanel
                         string destDllPath = Path.Combine(libraryFolder, Path.GetFileName(selectedDllPath));
                         if (File.Exists(destDllPath))
                         {
-                             logManager.LogEvent($"Plugin add skipped (file already exists in Library): {Path.GetFileName(selectedDllPath)}");
-                             skippedCount++;
-                             continue;
+                            logManager.LogEvent($"Plugin add skipped (file already exists in Library): {Path.GetFileName(selectedDllPath)}");
+                            skippedCount++;
+                            continue;
                         }
                         File.Copy(selectedDllPath, destDllPath);
 
@@ -137,35 +137,47 @@ namespace ITM_Agent.ucPanel
                     PluginsChanged?.Invoke(this, EventArgs.Empty);
                 }
 
-                // [수정] 최종 결과 알림
+                // [수정] 최종 결과 알림 (다국어 지원)
                 if (errorMessages.Count > 0)
                 {
-                    MessageBox.Show($"Errors occurred:\n{string.Join("\n", errorMessages)}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(string.Join("\n", errorMessages), 
+                                    Properties.Resources.CAPTION_ERROR, // "오류"
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 else if (addedCount > 0 || skippedCount > 0)
                 {
-                    MessageBox.Show($"플러그인 추가 완료.\n\n- 성공: {addedCount}개\n- 중복/스킵: {skippedCount}개", "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    string msg = string.Format(
+                        Properties.Resources.MSG_PLUGIN_ADD_RESULT, // "플러그인 추가 완료.\n\n- 성공: {0}개\n- 중복/스킵: {1}개"
+                        addedCount, 
+                        skippedCount);
+                    MessageBox.Show(msg, 
+                                    Properties.Resources.CAPTION_INFO, // "알림"
+                                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
-                // ▲▲▲ [수정] 완료 ▲▲▲
-            }   // using OpenFileDialog
+            }
         }
 
         private void btn_PlugRemove_Click(object sender, EventArgs e)
         {
-            // ▼▼▼ [수정] 다중 선택 기준으로 변경 ▼▼▼
             if (lb_PluginList.SelectedItems.Count == 0)
             {
-                MessageBox.Show("삭제할 플러그인을 선택하세요.", "알림",
+                // [수정] 다국어 지원
+                MessageBox.Show(Properties.Resources.MSG_PLUGIN_SELECT_DELETE, // "삭제할 플러그인을 선택하세요."
+                                Properties.Resources.CAPTION_INFO, // "알림"
                                 MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            // [수정] 선택된 항목 목록 가져오기
             var selectedDisplayItems = lb_PluginList.SelectedItems.Cast<string>().ToList();
-
+            
+            // [수정] 다국어 지원
+            string confirmMsg = string.Format(
+                Properties.Resources.MSG_PLUGIN_CONFIRM_DELETE, // "선택한 {0}개의 플러그인을 삭제하시겠습니까?"
+                selectedDisplayItems.Count);
             DialogResult result = MessageBox.Show(
-                $"선택한 {selectedDisplayItems.Count}개의 플러그인을 삭제하시겠습니까?", // [수정] 확인 메시지
-                "삭제 확인", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                confirmMsg,
+                Properties.Resources.CAPTION_WARNING, // "삭제 확인"
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
 
             if (result != DialogResult.Yes) return;
 
