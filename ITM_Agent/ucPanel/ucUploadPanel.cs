@@ -619,15 +619,51 @@ namespace ITM_Agent.ucPanel
 
         private void RunPlugin(string pluginName, string filePath, string lockKey = null)
         {
-            // [추가] 탭 1에서 호출된 경우 lockKey가 null이므로 설정
-            if (lockKey == null)
-                lockKey = filePath.ToUpperInvariant();
-
             try
             {
                 // ... (기존 플러그인 로드 및 실행 준비 코드) ...
+                var pluginItem = _pluginPanel.GetLoadedPlugins()
+                    .FirstOrDefault(p => p.PluginName.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
+                // ... (null 체크) ...
+                byte[] dllBytes = File.ReadAllBytes(pluginItem.AssemblyPath);
+                Assembly asm = Assembly.Load(dllBytes);
+                // ... (targetType 찾기) ...
+                Type targetType = asm.GetTypes().FirstOrDefault(t => t.IsClass && !t.IsAbstract && t.GetMethods().Any(m => m.Name == "ProcessAndUpload"));
+                if (targetType == null)
+                {
+                    _logManager.LogError($"[ucUploadPanel] No class with ProcessAndUpload() method found in plugin: {pluginName}");
+                    return;
+                }
+
+                object pluginObj = Activator.CreateInstance(targetType);
+                // ... (MethodInfo mi 찾기 및 args 설정) ...
                 
-                // ... (mi, args 찾는 로직) ...
+                MethodInfo mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string), typeof(object), typeof(object) });
+                
+                object[] args;
+                if (mi != null)
+                {
+                    args = new object[] { filePath, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings.ini"), null };
+                }
+                else
+                {
+                    mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string), typeof(string) });
+                    if (mi != null)
+                    {
+                        args = new object[] { filePath, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings.ini") };
+                    }
+                    else
+                    {
+                        mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string) });
+                        if (mi == null)
+                        {
+                             _logManager.LogError($"[ucUploadPanel] No compatible ProcessAndUpload() overload found in plugin: {pluginName}");
+                             return;
+                        }
+                        args = new object[] { filePath };
+                    }
+                }
+
 
                 Task.Run(() =>
                 {
@@ -640,13 +676,8 @@ namespace ITM_Agent.ucPanel
                     {
                         _logManager.LogError($"[ucUploadPanel] Plugin execution failed: {pluginName}. Error: {invokeEx.GetBaseException().Message}");
                     }
-                    finally
-                    {
-                        // ▼▼▼ [추가] 작업 완료 후 잠금 해제 ▼▼▼
-                        _processingFiles.TryRemove(lockKey, out _);
-                        _logManager.LogDebug($"[ucUploadPanel] Released lock for {filePath}.");
-                        // ▲▲▲ [추가] 완료 ▲▲▲
-                    }
+                    // [삭제] finally { _processingFiles.TryRemove(lockKey, out _); ... }
+                    // (시간 기반 잠금이므로 finally에서 해제할 필요 없음)
                 });
             }
             catch (Exception ex)
