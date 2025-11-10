@@ -436,7 +436,6 @@ namespace ITM_Agent.Services
             }
         }
 
-
         // ProcessFile 메서드
         private string ProcessFile(string filePath)
         {
@@ -457,10 +456,10 @@ namespace ITM_Agent.Services
                         {
                             Directory.CreateDirectory(destinationFolder);
 
-                            // [핵심 수정] File.Copy 대신 공유 위반 방비 헬퍼 메서드 사용
+                            // [핵심 수정] File.Copy 대신 공유 위반 방지 헬퍼 메서드 사용
                             if (!CopyFileWithSharedRead(filePath, destinationFile, true))
                             {
-                                // 헬퍼 메서드 내부에서 이미 로그를 기록했으므로 여기서는 반환만 함  
+                                // 헬퍼 메서드 내부에서 이미 로그를 기록했으므로 여기서는 반환만 함
                                 return null;
                             }
 
@@ -517,7 +516,7 @@ namespace ITM_Agent.Services
                 catch (IOException ioEx) when (i < maxRetries - 1)
                 {
                     // 대상 파일이 잠겼거나, 드물게 원본 파일이 잠긴 경우
-                    logManager.LogDebug($"[FileWatcherManager] IO error during copy (retrying {i+1}/{maxRetries}): {ioEx.Message}");
+                    logManager.LogDebug($"[FileWatcherManager] IO error during copy (retrying { i + 1 }/{maxRetries}): {ioEx.Message}");
                     Thread.Sleep(delayMs);
                 }
                 catch (Exception ex)
@@ -527,7 +526,7 @@ namespace ITM_Agent.Services
                     return false;
                 }
             }
-            
+
             // 모든 재시도 실패 (IOException)
             logManager.LogError($"[FileWatcherManager] Copy failed after retries (file likely locked): {sourcePath}");
             return false;
