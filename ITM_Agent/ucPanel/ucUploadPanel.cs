@@ -27,7 +27,7 @@ namespace ITM_Agent.ucPanel
         private readonly object _lockTab1 = new object();
         private readonly object _lockTab2 = new object();
 
-        // [햑심 수정] "처리 중" 플래그 대신 "마지막 이벤트 시간"을 기록
+        // [핵심 수정] "처리 중" 플래그 대신 "마지막 이벤트 시간"을 기록
         private readonly ConcurrentDictionary<string, DateTime> _lastProcessEventTime =
             new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private const double DebounceSeconds = 2.0; // 2초 이내의 중복 이벤트는 무시
@@ -143,7 +143,7 @@ namespace ITM_Agent.ucPanel
                 Name = "WatchFolder",
                 HeaderText = Properties.Resources.UPLOAD_COL_LIVE_FOLDER, // "원본 폴더"
                 DataPropertyName = "WatchFolder",
-                FillWeight = 35 
+                FillWeight = 35
             });
             dgvLiveMonitoring.Columns.Add(new DataGridViewButtonColumn
             {
@@ -340,10 +340,10 @@ namespace ITM_Agent.ucPanel
             dgvLiveMonitoring.Rows[rowIndex].Cells["TaskName"].Value = "New Task";
 
             // [수정] Req 1. 원본 폴더를 빈 값(null)으로 설정
-            dgvLiveMonitoring.Rows[rowIndex].Cells["WatchFolder"].Value = null; 
+            dgvLiveMonitoring.Rows[rowIndex].Cells["WatchFolder"].Value = null;
 
             dgvLiveMonitoring.Rows[rowIndex].Cells["FileFilter"].Value = "*.*";
-            dgvLiveMonitoring.Rows[rowIndex].Cells["PluginName"].Value = null; 
+            dgvLiveMonitoring.Rows[rowIndex].Cells["PluginName"].Value = null;
         }
 
         private void BtnLiveRemove_Click(object sender, EventArgs e)
@@ -353,7 +353,7 @@ namespace ITM_Agent.ucPanel
                 if (!row.IsNewRow) dgvLiveMonitoring.Rows.Remove(row);
             }
         }
-        
+
         private void BtnLiveSave_Click(object sender, EventArgs e)
         {
             string validationError;
@@ -362,10 +362,10 @@ namespace ITM_Agent.ucPanel
                 MessageBox.Show(validationError, Properties.Resources.CAPTION_ERROR, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            
+
             PerformSave(Tab2Section, dgvLiveMonitoring);
-            
-            MessageBox.Show(Properties.Resources.MSG_SAVE_LIVE_SUCCESS, 
+
+            MessageBox.Show(Properties.Resources.MSG_SAVE_LIVE_SUCCESS,
                             Properties.Resources.CAPTION_SAVE_COMPLETE, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -379,7 +379,7 @@ namespace ITM_Agent.ucPanel
 
             if (isRunning)
             {
-                StopWatchers(); 
+                StopWatchers();
                 InitializeWatchers();
             }
             else
@@ -391,9 +391,9 @@ namespace ITM_Agent.ucPanel
         private void InitializeWatchers()
         {
             _logManager.LogEvent("[ucUploadPanel] Initializing watchers...");
-            
-            InitializeComboBoxColumns(); 
-            
+
+            InitializeComboBoxColumns();
+
             // 탭 1 (분류 후 완료형) 감시자 초기화
             lock (_lockTab1)
             {
@@ -405,12 +405,12 @@ namespace ITM_Agent.ucPanel
                     if (row.IsNewRow) continue;
                     string folder = row.Cells["WatchFolder"].Value?.ToString();
                     string plugin = row.Cells["PluginName"].Value?.ToString();
-                    
+
                     if (string.IsNullOrEmpty(folder) || folder == "(폴더 선택)" ||
                         string.IsNullOrEmpty(plugin) || plugin == "(플러그인 선택)") continue;
 
                     foldersToWatch.Add(folder);
-                    _tab1RuleMap[folder.ToUpperInvariant()] = plugin; 
+                    _tab1RuleMap[folder.ToUpperInvariant()] = plugin;
                 }
 
                 foreach (string folder in foldersToWatch)
@@ -421,11 +421,11 @@ namespace ITM_Agent.ucPanel
                         var watcher = new FileSystemWatcher(folder)
                         {
                             Filter = "*.*",
-                            IncludeSubdirectories = false, 
+                            IncludeSubdirectories = false,
                             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
                             EnableRaisingEvents = true
                         };
-                        watcher.Created += OnTab1FileCreated; 
+                        watcher.Created += OnTab1FileCreated;
                         _tab1Watchers.Add(watcher);
                         _logManager.LogEvent($"[ucUploadPanel] Tab1 Watcher (Categorized) started: {folder}");
                     }
@@ -460,14 +460,14 @@ namespace ITM_Agent.ucPanel
                         var watcher = new FileSystemWatcher(folder)
                         {
                             Filter = filter,
-                            IncludeSubdirectories = false, 
+                            IncludeSubdirectories = false,
                             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
                             EnableRaisingEvents = true
                         };
                         watcher.Changed += OnTab2FileChanged;
-                        watcher.Created += OnTab2FileChanged; 
+                        watcher.Created += OnTab2FileChanged;
                         _tab2Watchers.Add(watcher);
-                        
+
                         string mapKey = $"{folder.ToUpperInvariant()}|{filter.ToUpperInvariant()}";
                         _tab2RuleMap[mapKey] = plugin;
 
