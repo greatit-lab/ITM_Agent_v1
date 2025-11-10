@@ -516,7 +516,7 @@ namespace ITM_Agent.Services
                 catch (IOException ioEx) when (i < maxRetries - 1)
                 {
                     // 대상 파일이 잠겼거나, 드물게 원본 파일이 잠긴 경우
-                    logManager.LogDebug($"[FileWatcherManager] IO error during copy (retrying { i + 1 }/{maxRetries}): {ioEx.Message}");
+                    logManager.LogDebug($"[FileWatcherManager] IO error during copy (retrying {i + 1}/{maxRetries}): {ioEx.Message}");
                     Thread.Sleep(delayMs);
                 }
                 catch (Exception ex)
