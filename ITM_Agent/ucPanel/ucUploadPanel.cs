@@ -621,13 +621,17 @@ namespace ITM_Agent.ucPanel
         {
             try
             {
-                // ... (기존 플러그인 로드 및 실행 준비 코드) ...
                 var pluginItem = _pluginPanel.GetLoadedPlugins()
                     .FirstOrDefault(p => p.PluginName.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
-                // ... (null 체크) ...
+
+                if (pluginItem == null || !File.Exists(pluginItem.AssemblyPath))
+                {
+                    _logManager.LogError($"[ucUploadPanel] Plugin DLL not found: {pluginName}");
+                    return;
+                }
+
                 byte[] dllBytes = File.ReadAllBytes(pluginItem.AssemblyPath);
                 Assembly asm = Assembly.Load(dllBytes);
-                // ... (targetType 찾기) ...
                 Type targetType = asm.GetTypes().FirstOrDefault(t => t.IsClass && !t.IsAbstract && t.GetMethods().Any(m => m.Name == "ProcessAndUpload"));
                 if (targetType == null)
                 {
@@ -636,10 +640,9 @@ namespace ITM_Agent.ucPanel
                 }
 
                 object pluginObj = Activator.CreateInstance(targetType);
-                // ... (MethodInfo mi 찾기 및 args 설정) ...
-                
+
                 MethodInfo mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string), typeof(object), typeof(object) });
-                
+
                 object[] args;
                 if (mi != null)
                 {
@@ -657,13 +660,12 @@ namespace ITM_Agent.ucPanel
                         mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string) });
                         if (mi == null)
                         {
-                             _logManager.LogError($"[ucUploadPanel] No compatible ProcessAndUpload() overload found in plugin: {pluginName}");
-                             return;
+                            _logManager.LogError($"[ucUploadPanel] No compatible ProcessAndUpload() overload found in plugin: {pluginName}");
+                            return;
                         }
                         args = new object[] { filePath };
                     }
                 }
-
 
                 Task.Run(() =>
                 {
@@ -676,33 +678,29 @@ namespace ITM_Agent.ucPanel
                     {
                         _logManager.LogError($"[ucUploadPanel] Plugin execution failed: {pluginName}. Error: {invokeEx.GetBaseException().Message}");
                     }
-                    // [삭제] finally { _processingFiles.TryRemove(lockKey, out _); ... }
-                    // (시간 기반 잠금이므로 finally에서 해제할 필요 없음)
                 });
             }
             catch (Exception ex)
             {
                 _logManager.LogError($"[ucUploadPanel] Failed to run plugin {pluginName}: {ex.Message}");
-                // [추가] Task.Run 이전에 예외 발생 시에도 잠금 해제
-                _processingFiles.TryRemove(lockKey, out _);
             }
         }
 
         #endregion
-        
+
         #region --- 그리드 UI 헬퍼 ---
 
         private void Dgv_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.Value != null && e.Value != DBNull.Value) return;
-            
+
             var dgv = sender as DataGridView;
             if (dgv == null) return;
 
             if (dgv.Columns[e.ColumnIndex] is DataGridViewComboBoxColumn)
             {
                 string colName = dgv.Columns[e.ColumnIndex].Name;
-                
+
                 if (colName == "WatchFolder")
                 {
                     e.Value = "(폴더 선택)";
@@ -717,8 +715,8 @@ namespace ITM_Agent.ucPanel
             // [추가] 탭 2의 원본 폴더 플레이스홀더
             else if (dgv == dgvLiveMonitoring && dgv.Columns[e.ColumnIndex].Name == "WatchFolder")
             {
-                 e.Value = "(경로 입력/선택)";
-                 e.FormattingApplied = true;
+                e.Value = "(경로 입력/선택)";
+                e.FormattingApplied = true;
             }
         }
 
@@ -731,7 +729,7 @@ namespace ITM_Agent.ucPanel
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
-            if (dgvLiveMonitoring.ReadOnly) return; 
+            if (dgvLiveMonitoring.ReadOnly) return;
 
             if (dgvLiveMonitoring.Columns[e.ColumnIndex].Name == "btnSelectFolder")
             {
@@ -746,9 +744,9 @@ namespace ITM_Agent.ucPanel
                     {
                         folderDialog.SelectedPath = _configPanel?.BaseFolderPath ?? AppDomain.CurrentDomain.BaseDirectory;
                     }
-                    
+
                     folderDialog.Description = "증분 감시할 원본 폴더를 선택하세요.";
-                    
+
                     if (folderDialog.ShowDialog() == DialogResult.OK)
                     {
                         dgvLiveMonitoring.Rows[e.RowIndex].Cells["WatchFolder"].Value = folderDialog.SelectedPath;
@@ -756,8 +754,8 @@ namespace ITM_Agent.ucPanel
                 }
             }
         }
-        
-        // ▼▼▼ [추가] Req 2. 콤보박스 선택 즉시 자동 완성 ▼▼▼
+
+        // [추가] Req 2. 콤보박스 선택 즉시 자동 완성
         private void Dgv_CurrentCellDirtyStateChanged(object sender, EventArgs e)
         {
             var dgv = sender as DataGridView;
@@ -819,32 +817,32 @@ namespace ITM_Agent.ucPanel
                 catch (Exception ex) { _logManager.LogError($"Failed to load metadata for {item.PluginName}: {ex.Message}"); }
             }
         }
-        
+
         private void OnPluginsChanged(object sender, EventArgs e)
         {
             InitializeComboBoxColumns();
             RefreshPluginMetadataCache();
 
             var validPluginNames = new HashSet<string>(
-                _pluginPanel.GetLoadedPlugins().Select(p => p.PluginName), 
+                _pluginPanel.GetLoadedPlugins().Select(p => p.PluginName),
                 StringComparer.OrdinalIgnoreCase
             );
-            
-            int clearedCount = 0; 
+
+            int clearedCount = 0;
 
             // 탭 1 (완료형) 검사
             for (int i = dgvCategorized.Rows.Count - 1; i >= 0; i--)
             {
                 var row = dgvCategorized.Rows[i];
                 if (row.IsNewRow) continue;
-                
+
                 string selectedPlugin = row.Cells["PluginName"].Value?.ToString();
 
-                if (!string.IsNullOrEmpty(selectedPlugin) && 
-                    selectedPlugin != "(플러그인 선택)" && 
-                    !validPluginNames.Contains(selectedPlugin)) 
+                if (!string.IsNullOrEmpty(selectedPlugin) &&
+                    selectedPlugin != "(플러그인 선택)" &&
+                    !validPluginNames.Contains(selectedPlugin))
                 {
-                    row.Cells["PluginName"].Value = null; 
+                    row.Cells["PluginName"].Value = null;
                     clearedCount++;
                     _logManager.LogEvent($"[ucUploadPanel] Tab1: Cleared plugin '{selectedPlugin}' from rule '{row.Cells["TaskName"].Value}' (plugin deleted).");
                 }
@@ -855,34 +853,34 @@ namespace ITM_Agent.ucPanel
             {
                 var row = dgvLiveMonitoring.Rows[i];
                 if (row.IsNewRow) continue;
-                
+
                 string selectedPlugin = row.Cells["PluginName"].Value?.ToString();
 
-                if (!string.IsNullOrEmpty(selectedPlugin) && 
-                    selectedPlugin != "(플러그인 선택)" && 
-                    !validPluginNames.Contains(selectedPlugin)) 
+                if (!string.IsNullOrEmpty(selectedPlugin) &&
+                    selectedPlugin != "(플러그인 선택)" &&
+                    !validPluginNames.Contains(selectedPlugin))
                 {
-                    row.Cells["PluginName"].Value = null; 
+                    row.Cells["PluginName"].Value = null;
                     clearedCount++;
                     _logManager.LogEvent($"[ucUploadPanel] Tab2: Cleared plugin '{selectedPlugin}' from rule '{row.Cells["TaskName"].Value}' (plugin deleted).");
                 }
             }
 
-            // ▼▼▼ [수정] "조용한" 자동 저장 (알림창 X, 유효성 검사 X) ▼▼▼
+            // [수정] "조용한" 자동 저장 (알림창 X, 유효성 검사 X)
             if (clearedCount > 0)
             {
                 // 알림창 없이 저장 로직만 호출
-                PerformSave(Tab1Section, dgvCategorized); 
-                PerformSave(Tab2Section, dgvLiveMonitoring); 
+                PerformSave(Tab1Section, dgvCategorized);
+                PerformSave(Tab2Section, dgvLiveMonitoring);
 
                 string msg = string.Format(
-                    Properties.Resources.MSG_PLUGIN_CLEARED_RULES, 
+                    Properties.Resources.MSG_PLUGIN_CLEARED_RULES,
                     clearedCount);
 
                 // 알림은 띄움
                 MessageBox.Show(
                     msg,
-                    Properties.Resources.CAPTION_PLUGIN_CHANGED, 
+                    Properties.Resources.CAPTION_PLUGIN_CHANGED,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information
                 );
@@ -898,14 +896,14 @@ namespace ITM_Agent.ucPanel
                 byte[] dllBytes = File.ReadAllBytes(dllPath);
                 Assembly asm = Assembly.Load(dllBytes);
 
-                var pluginType = asm.GetTypes().FirstOrDefault(t => 
-                    t.IsClass && !t.IsAbstract && 
+                var pluginType = asm.GetTypes().FirstOrDefault(t =>
+                    t.IsClass && !t.IsAbstract &&
                     t.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(m => m.Name == "ProcessAndUpload"));
 
                 if (pluginType != null)
                 {
                     object pluginObj = Activator.CreateInstance(pluginType);
-                    
+
                     var taskProp = pluginType.GetProperty("DefaultTaskName", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
                     if (taskProp != null && taskProp.PropertyType == typeof(string))
                         taskName = taskProp.GetValue(pluginObj, null) as string;
@@ -915,7 +913,7 @@ namespace ITM_Agent.ucPanel
                         fileFilter = filterProp.GetValue(pluginObj, null) as string;
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 _logManager.LogError($"[ucUploadPanel] Failed to reflect metadata from {dllPath}: {ex.Message}");
             }
@@ -928,17 +926,17 @@ namespace ITM_Agent.ucPanel
         public void LoadImageSaveFolder_PathChanged()
         {
             InitializeComboBoxColumns();
-            LoadSettings(); 
+            LoadSettings();
         }
 
         private void SetControlsEnabled(bool enabled)
         {
-            dgvCategorized.ReadOnly = !enabled; 
+            dgvCategorized.ReadOnly = !enabled;
             btnCatAdd.Enabled = enabled;
             btnCatRemove.Enabled = enabled;
             btnCatSave.Enabled = enabled;
 
-            dgvLiveMonitoring.ReadOnly = !enabled; 
+            dgvLiveMonitoring.ReadOnly = !enabled;
             btnLiveAdd.Enabled = enabled;
             btnLiveRemove.Enabled = enabled;
             btnLiveSave.Enabled = enabled;
@@ -948,7 +946,7 @@ namespace ITM_Agent.ucPanel
         {
             if (disposing)
             {
-                StopWatchers(); 
+                StopWatchers();
                 if (components != null)
                 {
                     components.Dispose();
@@ -961,16 +959,16 @@ namespace ITM_Agent.ucPanel
         {
             if (!ValidateRules(dgvCategorized, Properties.Resources.UPLOAD_TAB1_HEADER, out errorMessage))
             {
-                return true; 
+                return true;
             }
 
             if (!ValidateRules(dgvLiveMonitoring, Properties.Resources.UPLOAD_TAB2_HEADER, out errorMessage))
             {
-                return true; 
+                return true;
             }
 
             errorMessage = string.Empty;
-            return false; 
+            return false;
         }
     }
 }
