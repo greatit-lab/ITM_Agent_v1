@@ -517,7 +517,7 @@ namespace ITM_Agent.ucPanel
         private void OnTab1FileCreated(object sender, FileSystemEventArgs e)
         {
             if (e.ChangeType != WatcherChangeTypes.Created) return;
-            Thread.Sleep(1000); 
+            Thread.Sleep(1000);
 
             // 1. 시간 기반 디바운스
             string fileKey = e.FullPath.ToUpperInvariant();
@@ -526,14 +526,14 @@ namespace ITM_Agent.ucPanel
             if (_lastProcessEventTime.TryGetValue(fileKey, out var lastTime) && (now - lastTime).TotalSeconds < DebounceSeconds)
             {
                 _logManager.LogDebug($"[ucUploadPanel] Debounce: Skipping event for {e.FullPath}, processed recently.");
-                return; 
+                return;
             }
             _lastProcessEventTime[fileKey] = now;
 
             // 2. 규칙 찾기
             string folder = Path.GetDirectoryName(e.FullPath).ToUpperInvariant();
             string pluginName;
-            
+
             if (!_tab1RuleMap.TryGetValue(folder, out pluginName))
             {
                 var parentFolder = Directory.GetParent(folder)?.FullName.ToUpperInvariant();
@@ -543,8 +543,8 @@ namespace ITM_Agent.ucPanel
                     return;
                 }
             }
-            
-            // ▼▼▼ [핵심 수정] Override 로직 및 플러그인 실행 흐름 제어 ▼▼▼
+
+            // [핵심 수정] Override 로직 및 플러그인 실행 흐름 제어
             string finalPath = e.FullPath;
             bool runPlugin = true; // 플러그인 실행 여부 플래그
 
@@ -552,7 +552,7 @@ namespace ITM_Agent.ucPanel
             if (_overridePanel != null && pluginName.Equals("Onto_WaferFlatData", StringComparison.OrdinalIgnoreCase))
             {
                 _logManager.LogDebug($"[ucUploadPanel] Tab1: Running Override logic for {e.FullPath}");
-                
+
                 // [수정] 타임아웃을 10초(10000ms)로 늘려 안정성 확보
                 string renamedPath = _overridePanel.EnsureOverrideAndReturnPath(e.FullPath, 10000);
 
@@ -579,15 +579,26 @@ namespace ITM_Agent.ucPanel
             else
             {
                 // [추가] 스킵된 경우에도 디바운스 시간 갱신 (재처리 방지)
-                _lastProcessEventTime[fileKey] = DateTime.Now; 
+                _lastProcessEventTime[fileKey] = DateTime.Now;
                 _logManager.LogDebug($"[ucUploadPanel] Skipped plugin execution for {e.FullPath}.");
             }
-            // ▲▲▲ [수정] 완료 ▲▲▲
         }
 
+        // 탭 2 (증분형) 이벤트 핸들러
         private void OnTab2FileChanged(object sender, FileSystemEventArgs e)
         {
             Thread.Sleep(200); 
+
+            // [수정] 시간 기반 디바운스 로직 (기존과 동일)
+            string fileKey = e.FullPath.ToUpperInvariant();
+            DateTime now = DateTime.Now;
+
+            if (_lastProcessEventTime.TryGetValue(fileKey, out var lastTime) && (now - lastTime).TotalSeconds < DebounceSeconds)
+            {
+                _logManager.LogDebug($"[ucUploadPanel] Debounce: Skipping event for {e.FullPath}, processed recently.");
+                return; 
+            }
+            _lastProcessEventTime[fileKey] = now;
 
             string folder = Path.GetDirectoryName(e.FullPath).ToUpperInvariant();
             string filter = (sender as FileSystemWatcher)?.Filter.ToUpperInvariant();
@@ -601,7 +612,9 @@ namespace ITM_Agent.ucPanel
             }
 
             _logManager.LogEvent($"[ucUploadPanel] Tab2 Processing (Live Log): {e.FullPath} -> Plugin: {pluginName}");
-            RunPlugin(pluginName, e.FullPath);
+            
+            // [수정] CS0103 오류 해결: lockKey 파라미터 전달 제거
+            RunPlugin(pluginName, e.FullPath); 
         }
 
         private void RunPlugin(string pluginName, string filePath)
