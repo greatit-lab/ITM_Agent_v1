@@ -404,7 +404,7 @@ namespace ITM_Agent
                 {
                     /*─ FileWatcher (Type A) + Performance 로깅 중지 ─*/
                     fileWatcherManager.StopWatchers();
-                    
+
                     /*─ ucUploadPanel (Type A & B) 중지 ─*/
                     // ★ [추가] ucUploadPanel의 Watcher들을 중지시킵니다.
                     ucUploadPanel?.UpdateStatusOnRun(false);
@@ -421,7 +421,7 @@ namespace ITM_Agent
 
                     /*─ 패널 동기화 ─*/
                     // [수정] InitializePanel 대신 UpdateStatusOnRun 사용
-                    ucConfigPanel.UpdateStatusOnRun(isRunning); 
+                    ucConfigPanel.UpdateStatusOnRun(isRunning);
                     ucOverrideNamesPanel.UpdateStatusOnRun(isRunning);
 
                     if (isDebugMode)
