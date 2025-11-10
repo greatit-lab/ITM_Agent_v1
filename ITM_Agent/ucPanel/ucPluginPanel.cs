@@ -140,7 +140,7 @@ namespace ITM_Agent.ucPanel
                 // [수정] 최종 결과 알림 (다국어 지원)
                 if (errorMessages.Count > 0)
                 {
-                    MessageBox.Show(string.Join("\n", errorMessages), 
+                    MessageBox.Show(string.Join("\n", errorMessages),
                                     Properties.Resources.CAPTION_ERROR, // "오류"
                                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -148,9 +148,9 @@ namespace ITM_Agent.ucPanel
                 {
                     string msg = string.Format(
                         Properties.Resources.MSG_PLUGIN_ADD_RESULT, // "플러그인 추가 완료.\n\n- 성공: {0}개\n- 중복/스킵: {1}개"
-                        addedCount, 
+                        addedCount,
                         skippedCount);
-                    MessageBox.Show(msg, 
+                    MessageBox.Show(msg,
                                     Properties.Resources.CAPTION_INFO, // "알림"
                                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
@@ -169,7 +169,7 @@ namespace ITM_Agent.ucPanel
             }
 
             var selectedDisplayItems = lb_PluginList.SelectedItems.Cast<string>().ToList();
-            
+
             // [수정] 다국어 지원
             string confirmMsg = string.Format(
                 Properties.Resources.MSG_PLUGIN_CONFIRM_DELETE, // "선택한 {0}개의 플러그인을 삭제하시겠습니까?"
