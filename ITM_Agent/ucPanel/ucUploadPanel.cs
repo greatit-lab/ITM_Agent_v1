@@ -4,16 +4,16 @@ using ITM_Agent.Services;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel; 
-using System.Data; 
+using System.ComponentModel;
+using System.Data;
 using System.IO;
 using System.Linq;
-using System.Reflection; 
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using ITM_Agent.Properties; 
+using ITM_Agent.Properties;
 
 namespace ITM_Agent.ucPanel
 {
@@ -22,10 +22,15 @@ namespace ITM_Agent.ucPanel
         // --- Watcher 목록 관리 ---
         private readonly List<FileSystemWatcher> _tab1Watchers = new List<FileSystemWatcher>();
         private readonly List<FileSystemWatcher> _tab2Watchers = new List<FileSystemWatcher>();
-        private readonly ConcurrentDictionary<string, string> _tab1RuleMap = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase); 
-        private readonly ConcurrentDictionary<string, string> _tab2RuleMap = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase); 
+        private readonly ConcurrentDictionary<string, string> _tab1RuleMap = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, string> _tab2RuleMap = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly object _lockTab1 = new object();
         private readonly object _lockTab2 = new object();
+
+        // [햑심 수정] "처리 중" 플래그 대신 "마지막 이벤트 시간"을 기록
+        private readonly ConcurrentDictionary<string, DateTime> _lastProcessEventTime =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private const double DebounceSeconds = 2.0; // 2초 이내의 중복 이벤트는 무시
 
         // --- 참조 필드 ---
         private readonly ucConfigurationPanel _configPanel;
@@ -36,7 +41,7 @@ namespace ITM_Agent.ucPanel
         private readonly ucImageTransPanel _imageTransPanel;
 
         // --- 플러그인 메타데이터 캐시 ---
-        private readonly Dictionary<string, (string Task, string Filter)> _pluginMetadataCache = 
+        private readonly Dictionary<string, (string Task, string Filter)> _pluginMetadataCache =
             new Dictionary<string, (string Task, string Filter)>(StringComparer.OrdinalIgnoreCase);
 
         // --- INI 섹션 이름 ---
@@ -57,7 +62,7 @@ namespace ITM_Agent.ucPanel
             _logManager = new LogManager(AppDomain.CurrentDomain.BaseDirectory);
 
             this.Load += UcUploadPanel_Load;
-            _pluginPanel.PluginsChanged += OnPluginsChanged; 
+            _pluginPanel.PluginsChanged += OnPluginsChanged;
 
             // 탭 1 버튼
             btnCatAdd.Click += BtnCatAdd_Click;
@@ -69,26 +74,26 @@ namespace ITM_Agent.ucPanel
             btnLiveRemove.Click += BtnLiveRemove_Click;
             btnLiveSave.Click += BtnLiveSave_Click;
 
-            InitializeDataGridViews(); 
+            InitializeDataGridViews();
             LoadSettings();
-            
+
             // [수정] CellValueChanged: 자동 완성을 위해 유지
             dgvCategorized.CellValueChanged += Dgv_CellValueChanged;
             dgvLiveMonitoring.CellValueChanged += Dgv_CellValueChanged;
 
             dgvCategorized.CellFormatting += Dgv_CellFormatting;
             dgvLiveMonitoring.CellFormatting += Dgv_CellFormatting;
-            
+
             dgvCategorized.DataError += Dgv_DataError;
             dgvLiveMonitoring.DataError += Dgv_DataError;
 
             dgvLiveMonitoring.CellClick += DgvLiveMonitoring_CellClick;
-            
+
             // ▼▼▼ [추가] Req 2. 자동 완성 지연 문제 해결 ▼▼▼
             dgvCategorized.CurrentCellDirtyStateChanged += Dgv_CurrentCellDirtyStateChanged;
             dgvLiveMonitoring.CurrentCellDirtyStateChanged += Dgv_CurrentCellDirtyStateChanged;
             // ▲▲▲ [추가] 완료 ▲▲▲
-            
+
             RefreshPluginMetadataCache();
         }
 
@@ -105,21 +110,21 @@ namespace ITM_Agent.ucPanel
                 Name = "TaskName",
                 HeaderText = Properties.Resources.UPLOAD_COL_TASKNAME, // "작업 이름"
                 DataPropertyName = "TaskName",
-                FillWeight = 30
+                FillWeight = 15
             });
             dgvCategorized.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "WatchFolder",
                 HeaderText = Properties.Resources.UPLOAD_COL_CAT_FOLDER, // "감시 폴더 (RegEx 목적지)"
                 DataPropertyName = "WatchFolder",
-                FillWeight = 40
+                FillWeight = 58
             });
             dgvCategorized.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "PluginName",
                 HeaderText = Properties.Resources.UPLOAD_COL_PLUGIN, // "실행 플러그인"
                 DataPropertyName = "PluginName",
-                FillWeight = 30
+                FillWeight = 27
             });
 
             // 탭 2: 원본 직접 감시 (증분형)
@@ -131,7 +136,7 @@ namespace ITM_Agent.ucPanel
                 Name = "TaskName",
                 HeaderText = Properties.Resources.UPLOAD_COL_TASKNAME, // "작업 이름"
                 DataPropertyName = "TaskName",
-                FillWeight = 20 
+                FillWeight = 16
             });
             dgvLiveMonitoring.Columns.Add(new DataGridViewTextBoxColumn
             {
@@ -147,29 +152,29 @@ namespace ITM_Agent.ucPanel
                 Text = "...",
                 UseColumnTextForButtonValue = true,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
-                FillWeight = 10, 
-                Width = 40       
+                FillWeight = 5,
+                Width = 40
             });
             dgvLiveMonitoring.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "FileFilter",
                 HeaderText = Properties.Resources.UPLOAD_COL_FILTER, // "파일 필터"
                 DataPropertyName = "FileFilter",
-                FillWeight = 15 
+                FillWeight = 20
             });
             dgvLiveMonitoring.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "PluginName",
                 HeaderText = Properties.Resources.UPLOAD_COL_PLUGIN, // "실행 플러그인"
                 DataPropertyName = "PluginName",
-                FillWeight = 20 
+                FillWeight = 28
             });
         }
 
         private void InitializeComboBoxColumns()
         {
             var pluginNames = _pluginPanel.GetLoadedPlugins().Select(p => p.PluginName).ToArray();
-            
+
             var dgvCatPluginCol = dgvCategorized.Columns["PluginName"] as DataGridViewComboBoxColumn;
             if (dgvCatPluginCol != null)
             {
@@ -213,7 +218,7 @@ namespace ITM_Agent.ucPanel
         private void LoadSettings()
         {
             dgvCategorized.Rows.Clear();
-            var tab1Settings = _settingsManager.GetFoldersFromSection(Tab1Section); 
+            var tab1Settings = _settingsManager.GetFoldersFromSection(Tab1Section);
             foreach (string line in tab1Settings)
             {
                 string[] parts = line.Split(new[] { "||" }, StringSplitOptions.None);
@@ -227,7 +232,7 @@ namespace ITM_Agent.ucPanel
             }
 
             dgvLiveMonitoring.Rows.Clear();
-            var tab2Settings = _settingsManager.GetFoldersFromSection(Tab2Section); 
+            var tab2Settings = _settingsManager.GetFoldersFromSection(Tab2Section);
             foreach (string line in tab2Settings)
             {
                 string[] parts = line.Split(new[] { "||" }, StringSplitOptions.None);
@@ -255,13 +260,13 @@ namespace ITM_Agent.ucPanel
                 {
                     if (string.IsNullOrEmpty(pluginName) || pluginName == "(플러그인 선택)")
                     {
-                        errorMessage = string.Format(Properties.Resources.MSG_RUN_PLUGIN_REQUIRED, 
+                        errorMessage = string.Format(Properties.Resources.MSG_RUN_PLUGIN_REQUIRED,
                                                         tabName, taskName);
-                        return false; 
+                        return false;
                     }
                 }
             }
-            return true; 
+            return true;
         }
 
         private void PerformSave(string section, DataGridView dgv)
@@ -273,10 +278,10 @@ namespace ITM_Agent.ucPanel
 
                 string taskName = row.Cells["TaskName"].Value?.ToString();
                 string pluginName = row.Cells["PluginName"].Value?.ToString();
-                
+
                 bool isValid = !string.IsNullOrEmpty(taskName) && taskName != "New Task" &&
                                !string.IsNullOrEmpty(pluginName) && pluginName != "(플러그인 선택)";
-                
+
                 if (dgv == dgvCategorized && isValid)
                 {
                     string watchFolder = row.Cells["WatchFolder"].Value?.ToString();
@@ -301,8 +306,8 @@ namespace ITM_Agent.ucPanel
         {
             int rowIndex = dgvCategorized.Rows.Add();
             dgvCategorized.Rows[rowIndex].Cells["TaskName"].Value = "New Task";
-            dgvCategorized.Rows[rowIndex].Cells["WatchFolder"].Value = null; 
-            dgvCategorized.Rows[rowIndex].Cells["PluginName"].Value = null; 
+            dgvCategorized.Rows[rowIndex].Cells["WatchFolder"].Value = null;
+            dgvCategorized.Rows[rowIndex].Cells["PluginName"].Value = null;
         }
 
         private void BtnCatRemove_Click(object sender, EventArgs e)
@@ -312,19 +317,19 @@ namespace ITM_Agent.ucPanel
                 if (!row.IsNewRow) dgvCategorized.Rows.Remove(row);
             }
         }
-        
+
         private void BtnCatSave_Click(object sender, EventArgs e)
         {
             string validationError;
             if (!ValidateRules(dgvCategorized, Properties.Resources.UPLOAD_TAB1_HEADER, out validationError))
             {
                 MessageBox.Show(validationError, Properties.Resources.CAPTION_ERROR, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return; 
+                return;
             }
-            
+
             PerformSave(Tab1Section, dgvCategorized);
-            
-            MessageBox.Show(Properties.Resources.MSG_SAVE_CAT_SUCCESS, 
+
+            MessageBox.Show(Properties.Resources.MSG_SAVE_CAT_SUCCESS,
                             Properties.Resources.CAPTION_SAVE_COMPLETE, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -333,10 +338,9 @@ namespace ITM_Agent.ucPanel
         {
             int rowIndex = dgvLiveMonitoring.Rows.Add();
             dgvLiveMonitoring.Rows[rowIndex].Cells["TaskName"].Value = "New Task";
-            
-            // ▼▼▼ [수정] Req 1. 원본 폴더를 빈 값(null)으로 설정 ▼▼▼
+
+            // [수정] Req 1. 원본 폴더를 빈 값(null)으로 설정
             dgvLiveMonitoring.Rows[rowIndex].Cells["WatchFolder"].Value = null; 
-            // ▲▲▲ [수정] 완료 ▲▲▲
 
             dgvLiveMonitoring.Rows[rowIndex].Cells["FileFilter"].Value = "*.*";
             dgvLiveMonitoring.Rows[rowIndex].Cells["PluginName"].Value = null; 
