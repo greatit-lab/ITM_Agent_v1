@@ -587,7 +587,7 @@ namespace ITM_Agent.ucPanel
         // 탭 2 (증분형) 이벤트 핸들러
         private void OnTab2FileChanged(object sender, FileSystemEventArgs e)
         {
-            Thread.Sleep(200); 
+            Thread.Sleep(200);
 
             // [수정] 시간 기반 디바운스 로직 (기존과 동일)
             string fileKey = e.FullPath.ToUpperInvariant();
@@ -596,7 +596,7 @@ namespace ITM_Agent.ucPanel
             if (_lastProcessEventTime.TryGetValue(fileKey, out var lastTime) && (now - lastTime).TotalSeconds < DebounceSeconds)
             {
                 _logManager.LogDebug($"[ucUploadPanel] Debounce: Skipping event for {e.FullPath}, processed recently.");
-                return; 
+                return;
             }
             _lastProcessEventTime[fileKey] = now;
 
@@ -612,60 +612,22 @@ namespace ITM_Agent.ucPanel
             }
 
             _logManager.LogEvent($"[ucUploadPanel] Tab2 Processing (Live Log): {e.FullPath} -> Plugin: {pluginName}");
-            
+
             // [수정] CS0103 오류 해결: lockKey 파라미터 전달 제거
-            RunPlugin(pluginName, e.FullPath); 
+            RunPlugin(pluginName, e.FullPath);
         }
 
-        private void RunPlugin(string pluginName, string filePath)
+        private void RunPlugin(string pluginName, string filePath, string lockKey = null)
         {
+            // [추가] 탭 1에서 호출된 경우 lockKey가 null이므로 설정
+            if (lockKey == null)
+                lockKey = filePath.ToUpperInvariant();
+
             try
             {
-                var pluginItem = _pluginPanel.GetLoadedPlugins()
-                    .FirstOrDefault(p => p.PluginName.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
-
-                if (pluginItem == null || !File.Exists(pluginItem.AssemblyPath))
-                {
-                    _logManager.LogError($"[ucUploadPanel] Plugin DLL not found: {pluginName}");
-                    return;
-                }
-
-                byte[] dllBytes = File.ReadAllBytes(pluginItem.AssemblyPath);
-                Assembly asm = Assembly.Load(dllBytes);
-                Type targetType = asm.GetTypes().FirstOrDefault(t => t.IsClass && !t.IsAbstract && t.GetMethods().Any(m => m.Name == "ProcessAndUpload"));
-                if (targetType == null)
-                {
-                    _logManager.LogError($"[ucUploadPanel] No class with ProcessAndUpload() method found in plugin: {pluginName}");
-                    return;
-                }
-
-                object pluginObj = Activator.CreateInstance(targetType);
+                // ... (기존 플러그인 로드 및 실행 준비 코드) ...
                 
-                MethodInfo mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string), typeof(object), typeof(object) });
-                
-                object[] args;
-                if (mi != null)
-                {
-                    args = new object[] { filePath, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings.ini"), null };
-                }
-                else
-                {
-                    mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string), typeof(string) });
-                    if (mi != null)
-                    {
-                        args = new object[] { filePath, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Settings.ini") };
-                    }
-                    else
-                    {
-                        mi = targetType.GetMethod("ProcessAndUpload", new[] { typeof(string) });
-                        if (mi == null)
-                        {
-                             _logManager.LogError($"[ucUploadPanel] No compatible ProcessAndUpload() overload found in plugin: {pluginName}");
-                             return;
-                        }
-                        args = new object[] { filePath };
-                    }
-                }
+                // ... (mi, args 찾는 로직) ...
 
                 Task.Run(() =>
                 {
@@ -678,12 +640,20 @@ namespace ITM_Agent.ucPanel
                     {
                         _logManager.LogError($"[ucUploadPanel] Plugin execution failed: {pluginName}. Error: {invokeEx.GetBaseException().Message}");
                     }
+                    finally
+                    {
+                        // ▼▼▼ [추가] 작업 완료 후 잠금 해제 ▼▼▼
+                        _processingFiles.TryRemove(lockKey, out _);
+                        _logManager.LogDebug($"[ucUploadPanel] Released lock for {filePath}.");
+                        // ▲▲▲ [추가] 완료 ▲▲▲
+                    }
                 });
-
             }
             catch (Exception ex)
             {
                 _logManager.LogError($"[ucUploadPanel] Failed to run plugin {pluginName}: {ex.Message}");
+                // [추가] Task.Run 이전에 예외 발생 시에도 잠금 해제
+                _processingFiles.TryRemove(lockKey, out _);
             }
         }
 
