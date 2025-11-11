@@ -253,7 +253,7 @@ namespace ITM_Agent.ucPanel
 
             // FileSystemWatcher 이벤트 핸들러가 차단되지 않도록
             // 별도 스레드 풀 스레드에서 즉시 처리를 시작합니다.
-            ThreadPool.QueueUserWorkItem(_ => 
+            ThreadPool.QueueUserWorkItem(_ =>
             {
                 // ProcessStableFile 내부에서 파일 읽기/잠금 등을 처리합니다.
                 ProcessStableFile(e.FullPath);
@@ -906,7 +906,6 @@ namespace ITM_Agent.ucPanel
             {
                 baselineWatcher?.Dispose();
                 folderWatcher?.Dispose();
-                stabilityTimer?.Dispose();
             }
             base.Dispose(disposing);
         }
