@@ -240,54 +240,39 @@ namespace ITM_Agent.Services
             // --- 이하 안정화 추적 로직 ---
             try
             {
-                if (File.Exists(e.FullPath) && CanReadFile(e.FullPath))
+                lock (trackingLock)
                 {
-                    lock (trackingLock)
+                    DateTime now = DateTime.UtcNow;
+                    long currentSize = GetFileSizeSafe(e.FullPath);
+                    DateTime currentWriteTime = GetLastWriteTimeSafe(e.FullPath);
+
+                    if (currentSize == 0 && e.ChangeType == WatcherChangeTypes.Changed)
                     {
-                        DateTime now = DateTime.UtcNow;
-                        long currentSize = GetFileSizeSafe(e.FullPath);
-                        DateTime currentWriteTime = GetLastWriteTimeSafe(e.FullPath);
-
-                        if (currentSize == 0 && e.ChangeType == WatcherChangeTypes.Changed)
-                        {
-                            if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Ignoring zero-byte Changed event: {e.FullPath}");
-                            return;
-                        }
-
-                        if (!trackedFiles.TryGetValue(e.FullPath, out FileTrackingInfo info))
-                        {
-                            info = new FileTrackingInfo();
-                            trackedFiles[e.FullPath] = info;
-                            if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Start tracking: {e.FullPath}");
-                        }
-
-                        info.LastEventTime = now;
-                        info.LastSize = currentSize;
-                        info.LastWriteTime = currentWriteTime;
-                        info.LastChangeType = e.ChangeType;
-
-                        if (stabilityCheckTimer == null)
-                        {
-                            stabilityCheckTimer = new Timer(CheckFileStability, null, StabilityCheckIntervalMs, StabilityCheckIntervalMs);
-                            if (LogManager.GlobalDebugEnabled) logManager.LogDebug("[FileWatcherManager] Stability check timer started.");
-                        }
-                        else
-                        {
-                            stabilityCheckTimer.Change(StabilityCheckIntervalMs, StabilityCheckIntervalMs);
-                        }
+                        if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Ignoring zero-byte Changed event: {e.FullPath}");
+                        return;
                     }
-                }
-                else
-                {
-                    lock (trackingLock)
+
+                    if (!trackedFiles.TryGetValue(e.FullPath, out FileTrackingInfo info))
                     {
-                        if (trackedFiles.ContainsKey(e.FullPath))
-                        {
-                            trackedFiles.Remove(e.FullPath);
-                            if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Stop tracking (file doesn't exist or cannot be read): {e.FullPath}");
-                        }
+                        info = new FileTrackingInfo();
+                        trackedFiles[e.FullPath] = info;
+                        if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Start tracking: {e.FullPath}");
                     }
-                    if (LogManager.GlobalDebugEnabled) logManager.LogDebug($"[FileWatcherManager] Ignoring event (file doesn't exist or cannot be read): {e.FullPath}");
+
+                    info.LastEventTime = now;
+                    info.LastSize = currentSize;
+                    info.LastWriteTime = currentWriteTime;
+                    info.LastChangeType = e.ChangeType;
+
+                    if (stabilityCheckTimer == null)
+                    {
+                        stabilityCheckTimer = new Timer(CheckFileStability, null, StabilityCheckIntervalMs, StabilityCheckIntervalMs);
+                        if (LogManager.GlobalDebugEnabled) logManager.LogDebug("[FileWatcherManager] Stability check timer started.");
+                    }
+                    else
+                    {
+                        stabilityCheckTimer.Change(StabilityCheckIntervalMs, StabilityCheckIntervalMs);
+                    }
                 }
             }
             catch (Exception ex)
@@ -500,8 +485,8 @@ namespace ITM_Agent.Services
                     // ★ FileShare.ReadWrite: 원본 파일을 읽는 동안 다른 프로세스(장비)가 쓸 수 있도록 허용
                     using (var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
-                        // 대상 파일은 덮어쓰기
-                        using (var destStream = new FileStream(destPath, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write))
+                        // [수정] 대상 파일(destStream)을 쓰는(Write) 동안, 다른 프로세스가 읽고 쓸 수 있도록(FileShare.ReadWrite) 명시적으로 허용합니다.
+                        using (var destStream = new FileStream(destPath, overwrite ? FileMode.Create : FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite))
                         {
                             sourceStream.CopyTo(destStream);
                         }
