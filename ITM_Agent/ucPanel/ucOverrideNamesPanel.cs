@@ -26,10 +26,6 @@ namespace ITM_Agent.ucPanel
         // ----------------------------
         // (1) 안정화 감지를 위한 필드
         // ----------------------------
-        private readonly Dictionary<string, FileTrackingInfo> trackedFiles = new Dictionary<string, FileTrackingInfo>();
-        private System.Threading.Timer stabilityTimer;
-        private readonly object trackingLock = new object();
-        private const double StabilitySeconds = 2.0;   // "안정화" 판단까지 대기시간 (초)
 
         public ucOverrideNamesPanel(SettingsManager settingsManager, ucConfigurationPanel configPanel, LogManager logManager, bool isDebugMode)
         {
@@ -75,78 +71,6 @@ namespace ITM_Agent.ucPanel
         }
 
         #region 안정화 감지용 내부 클래스/메서드
-
-        /// <summary>
-        /// 파일 추적 정보를 저장하기 위한 클래스
-        /// </summary>
-        private class FileTrackingInfo
-        {
-            public DateTime LastEventTime { get; set; }     // 마지막 이벤트가 감지된 시각
-            public long LastSize { get; set; }              // 마지막으로 확인된 파일 크기
-            public DateTime LastWriteTime { get; set; }     // 마지막으로 확인된 파일 수정 시간
-        }
-
-        /// <summary>
-        /// 파일 변경 이벤트 이후, "파일이 안정화되었는지"를 주기적으로 체크하는 메서드
-        /// </summary>
-        private void CheckFileStability()
-        {
-            var now = DateTime.Now;
-            var stableFiles = new List<string>();
-
-            // 1) 안정화된 파일 목록을 찾고, 추적 목록에서 즉시 제거
-            lock (trackingLock)
-            {
-                var snapshot = trackedFiles.ToList();
-                foreach (var kv in snapshot)
-                {
-                    string filePath = kv.Key;
-                    var info = kv.Value;
-
-                    // 파일 크기/수정시각 재확인
-                    long currentSize = GetFileSizeSafe(filePath);
-                    DateTime currentWriteTime = GetLastWriteTimeSafe(filePath);
-
-                    // 크기나 수정시각이 달라졌다면, 아직 안정화되지 않음
-                    if (currentSize != info.LastSize || currentWriteTime != info.LastWriteTime)
-                    {
-                        info.LastEventTime = now;
-                        info.LastSize = currentSize;
-                        info.LastWriteTime = currentWriteTime;
-                        continue;
-                    }
-
-                    // (변경 없음) => 마지막 이벤트 시각 이후 경과 시간 확인
-                    double diffSec = (now - info.LastEventTime).TotalSeconds;
-                    if (diffSec >= StabilitySeconds)
-                    {
-                        // 일정 시간동안 변경이 없으면 "안정화"로 간주
-                        stableFiles.Add(filePath);
-                    }
-                }
-
-                if (stableFiles.Count > 0)
-                {
-                    foreach (var filePath in stableFiles)
-                    {
-                        trackedFiles.Remove(filePath);
-                    }
-                }
-
-                // 더 이상 추적 중인 파일이 없으면 타이머 해제
-                if (trackedFiles.Count == 0 && stabilityTimer != null)
-                {
-                    stabilityTimer.Dispose();
-                    stabilityTimer = null;
-                }
-            } // lock 끝
-
-            // 2) 잠금(lock) 외부에서 실제 파일 처리 수행
-            foreach (var filePath in stableFiles)
-            {
-                ProcessStableFile(filePath);
-            }
-        }
 
         private void ProcessStableFile(string filePath)
         {
@@ -323,33 +247,17 @@ namespace ITM_Agent.ucPanel
         /// </summary>
         private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
         {
-            // 잠시 기록만 해두고, 처리 로직은 Timer에서 진행
-            lock (trackingLock)
-            {
-                if (!trackedFiles.TryGetValue(e.FullPath, out FileTrackingInfo info))
-                {
-                    info = new FileTrackingInfo
-                    {
-                        LastEventTime = DateTime.Now,
-                        LastSize = GetFileSizeSafe(e.FullPath),
-                        LastWriteTime = GetLastWriteTimeSafe(e.FullPath)
-                    };
-                    trackedFiles[e.FullPath] = info;
-                }
-                else
-                {
-                    // 이미 추적 중인 파일이면 정보 갱신
-                    info.LastEventTime = DateTime.Now;
-                    info.LastSize = GetFileSizeSafe(e.FullPath);
-                    info.LastWriteTime = GetLastWriteTimeSafe(e.FullPath);
-                }
-            }
+            // FileWatcherManager가 이미 5초 안정화를 거친 후 복사한 파일입니다.
+            // 2초 타이머 대기를 제거하고 즉시 처리를 시도합니다.
+            logManager.LogDebug($"[ucOverrideNamesPanel] File event received, processing immediately: {e.FullPath}");
 
-            // 타이머가 없으면 생성 (2초 간격으로 CheckFileStability 실행)
-            if (stabilityTimer == null)
+            // FileSystemWatcher 이벤트 핸들러가 차단되지 않도록
+            // 별도 스레드 풀 스레드에서 즉시 처리를 시작합니다.
+            ThreadPool.QueueUserWorkItem(_ => 
             {
-                stabilityTimer = new System.Threading.Timer(_ => CheckFileStability(), null, 2000, 2000);
-            }
+                // ProcessStableFile 내부에서 파일 읽기/잠금 등을 처리합니다.
+                ProcessStableFile(e.FullPath);
+            });
         }
 
         private void btn_BaseClear_Click(object sender, EventArgs e)
@@ -524,8 +432,10 @@ namespace ITM_Agent.ucPanel
         {
             try
             {
+                // [수정] FileShare.Delete 권한을 제거하여,
+                // FileWatcherManager가 FileShare.ReadWrite로 쓰는(복사) 중에도 읽기 접근이 가능하도록 허용합니다.
                 using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read,
-                                                   FileShare.ReadWrite | FileShare.Delete))
+                                                   FileShare.ReadWrite))
                 {
                     return true; // 파일에 액세스 가능
                 }
