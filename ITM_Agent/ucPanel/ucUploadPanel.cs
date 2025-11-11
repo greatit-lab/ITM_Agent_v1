@@ -556,7 +556,7 @@ namespace ITM_Agent.ucPanel
                 // [수정] 타임아웃을 10초(10000ms)로 늘려 안정성 확보
                 string renamedPath = _overridePanel.EnsureOverrideAndReturnPath(e.FullPath, 10000);
 
-                if (renamedPath != null)
+                if (renamedPath != e.FullPath)
                 {
                     // [성공] .info 파일 발견, 이름 변경 완료
                     finalPath = renamedPath;
